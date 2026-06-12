@@ -6,7 +6,8 @@ from math import ceil
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from media.common import decode_video, quantize_video, downscale_horrendous, print_progress
+from media.ext_decode import decode_video
+from media.common import quantize_video, print_progress, downscale_horrendous
 from common.base import ANSI_SAVE_CURSOR, ANSI_RESTORE_CURSOR, emit_sequence
 
 def encode_timestamps(timestamps: list[float]) -> tuple[list[int], int]:

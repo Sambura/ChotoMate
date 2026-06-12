@@ -5,6 +5,7 @@ from media.common import print_progress, downscale_horrendous, downscale_pil
 from pathlib import Path
 import os
 import io
+import sys
 
 import pygame
 
@@ -250,3 +251,6 @@ def get_scene_list():
         'video': VideoScene,
         'flat-video': PlainVideoScene
     }
+
+# this is a problem for later :)
+assert 'cv2' not in sys.modules
