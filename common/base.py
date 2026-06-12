@@ -244,7 +244,7 @@ class CharBuffer:
         for c in text:
             if x >= self.width:
                 return
-            
+
             self.char_buffer[y][x] = c
             if color is not None:
                 self.color_buffer[y, x] = color
@@ -340,14 +340,54 @@ class ColorEvolvers:
         "Multiplies color by fade_rate upon invocation. **Warning**: fade speed depends on FPS"
         def evolver(color_buffer: np.ndarray[float], delta_time: float):
             return color_buffer * fade_rate
-    
+
         return evolver
+
+    def power_fade(fade_power: float=1.01, uniform_channel_fade: bool=True, method: str=None):
+        "Raises color (in range [0..1]) to fade_power. **Warning**: fade speed depends on FPS"
+        if not uniform_channel_fade and method is not None:
+            raise ValueError('method should not be specified unless uniform_channel_fade is True')
+
+        def evolver_base(color_buffer: np.ndarray[float], delta_time: float):
+            return 256 * ((color_buffer / 256) ** fade_power)
+
+        if method is None: method = 'max'
+        methods = {'max': np.max, 'min': np.min, 'mean': np.mean}
+        if method not in methods:
+            raise ValueError(f'Unknown method: {method}')
+        func = methods[method.lower()]
+
+        def evolver_uniform(color_buffer: np.ndarray[float], delta_time: float):
+            brightness = func(color_buffer, axis=2)
+            normalized = brightness / 256 # divide by 256 to ensure all values are *less* than one 1
+            fade_amount = 1 - (normalized - normalized ** fade_power)
+
+            return fade_amount[:, :, np.newaxis] * color_buffer
+
+        return evolver_uniform if uniform_channel_fade else evolver_base
+
+    def preserve_color(color_buffer: np.ndarray[float], delta_time: float):
+        "Keeps the same color as the last frame"
+        return color_buffer
 
 def positive_float(value):
     x = float(value)
     if x <= 0:
         raise argparse.ArgumentTypeError(f'{x} should be positive')
     return x
+
+def custom_float(min_value=None, max_value=None, min_inclusive=True, max_inclusive=True):
+    def _checker(value):
+        x = float(value)
+        if min_value is not None and x < min_value or (x == min_value and not min_inclusive):
+            verb = 'greater than or equal' if min_inclusive else 'greater than'
+            raise argparse.ArgumentTypeError(f'argument should be {verb} {min_value}')
+        if max_value is not None and x > max_value or (x == max_value and not max_inclusive):
+            verb = 'less than or equal' if min_inclusive else 'less than'
+            raise argparse.ArgumentTypeError(f'argument should be {verb} {max_value}')
+        return x
+
+    return _checker
 
 def float01(value):
     x = float(value)
@@ -360,3 +400,9 @@ def positive_int(value):
     if x <= 0:
         raise argparse.ArgumentTypeError(f'{x} should be positive')
     return x
+
+def color_arg(value: str):
+    hex_color = value.lstrip("#")
+    if len(value) != 6:
+        raise argparse.ArgumentTypeError(f'expected 6 hex characters')
+    return color8(*[int(hex_color[i:i+2], 16) for i in (0, 2, 4)])
