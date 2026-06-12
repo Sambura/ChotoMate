@@ -93,14 +93,15 @@ class BaseVideoScene(CharBufferScene):
         super().__init__(width, height, char_pallet)
         self.video_name = Path(args.filename).stem
         self.primary_color = primary_color
+        self.loop = args.loop
 
         video = AutoVideoData(args.filename)
         downscaler = downscale_horrendous if args.fast_downscale else downscale_pil
         self.frames, elapsed = generate_frames(video, self.width, self.height, self.char_buffer.char_pallet.char_width, create_cache=args.cache_frames, downscaler=downscaler)
         print(f'Time elapsed: {elapsed:0.1f}s')
-        self.next_frame = 0
-        self.start_time = perf_counter() + 1.5
-        self.current_frame = self.frames[0][0]
+
+        if args.ff:
+            self.frames = [(frame, i / 1000) for i, (frame, timestamp) in enumerate(self.frames)]
 
         # set buffer to 128 seems to remove audio delay? not sure
         pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=128)
@@ -111,11 +112,41 @@ class BaseVideoScene(CharBufferScene):
         else:
             self.audio = pygame.mixer.Sound(np.zeros((44100), dtype=np.float16))
 
+        self.restart()
+
+    def restart(self):
+        self.next_frame = 0
+        self.start_time = perf_counter() + 1.5
+        self.current_frame = self.frames[0][0]
+        self.audio.stop()
+        self.frame_updated = True
+
+    def advance_frame(self, terminal):
+        self.frame_updated = False
+        while self.next_frame >= len(self.frames) or perf_counter() >= self.frames[self.next_frame][1] + self.start_time:
+            if self.next_frame == 0:
+                self.audio.play()
+
+            is_last_frame = self.next_frame >= len(self.frames)
+            if is_last_frame and not self.loop:
+                draw_no_source(self.char_buffer, perf_counter() - self.start_time - self.frames[-1][1])
+                self.char_buffer.render_chars(terminal)
+                return [], ' [no source]'
+            elif is_last_frame:
+                self.restart()
+                break
+
+            self.current_frame = self.frames[self.next_frame][0]
+            self.next_frame += 1
+            self.frame_updated = True
+
     def register_arg_parser(subparser: argparse.ArgumentParser):
         subparser.add_argument('filename', type=str)
         subparser.add_argument('--audio-volume', '-v', type=float01, default=0.5, help='|')
         subparser.add_argument('--cache-frames', action='store_true', help='|')
         subparser.add_argument('--fast-downscale', action='store_true', help='|')
+        subparser.add_argument('--loop', action='store_true', help='|')
+        subparser.add_argument('--ff', action='store_true', help='|')
 
 # --no-ghosting --fade 0.8 --max-fall 5 --max-spawn 10000
 class VideoScene(BaseVideoScene):
@@ -189,18 +220,12 @@ class VideoScene(BaseVideoScene):
         self.char_buffer.tag_buffer = white_pixels_mask * self.char_buffer.tag_buffer + non_existing_tag * dark_pixels_mask
 
     def do_frame(self, terminal: Terminal, delta_time: float):
+        res = self.advance_frame(terminal)
+        if res is not None:
+            return res
+
         anti_ghosting_time = 0
-        while perf_counter() >= self.frames[self.next_frame][1] + self.start_time:
-            if self.next_frame == 0:
-                self.audio.play()
-
-            if self.next_frame + 1 >= len(self.frames):
-                draw_no_source(self.char_buffer, perf_counter() - self.start_time - self.frames[-1][1])
-                self.char_buffer.render_chars(terminal)
-                return [], ' [no source]'
-
-            self.current_frame = self.frames[self.next_frame][0]
-            self.next_frame += 1
+        if self.frame_updated:
             self.frame_status = f'{self.next_frame}/{len(self.frames)}'
 
             if self.no_ghosting:
@@ -225,22 +250,12 @@ class PlainVideoScene(BaseVideoScene):
         self.char_buffer.color_buffer = self.white_frame * self.current_frame[:, :, np.newaxis]
 
     def do_frame(self, terminal: Terminal, dt: float):
-        new_frame = False
-        while perf_counter() >= self.frames[self.next_frame][1] + self.start_time:
-            new_frame = True
-            if self.next_frame == 0:
-                self.audio.play()
-
-            if self.next_frame + 1 >= len(self.frames):
-                draw_no_source(self.char_buffer, perf_counter() - self.start_time - self.frames[-1][1])
-                self.char_buffer.render_chars(terminal)
-                return [], ' [no source]'
-
-            self.current_frame = self.frames[self.next_frame][0]
-            self.next_frame += 1
+        res = self.advance_frame(terminal)
+        if res is not None:
+            return res
 
         display_time = 0
-        if new_frame:
+        if self.frame_updated:
             display_time = self.display_frame()
         render_time = self.char_buffer.render_color_buffer(terminal)
 

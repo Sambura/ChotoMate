@@ -29,7 +29,7 @@ def quantize_video(frames: list, verbose: bool=True, threshold: int=127):
     return q_frames
 
 def downscale_horrendous(img, new_w, new_h):
-    "One of the most horrendous implementation of downscaling (but it does work! and fast!)"
+    "One of the most horrendous implementations of downscaling (but it does work! and fast!)"
     h, w = img.shape[:2]
 
     row_idx = (np.linspace(0, h - 1, new_h)).astype(int)
